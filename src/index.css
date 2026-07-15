@@ -1,0 +1,53 @@
+@import url('https://fonts.googleapis.com/css2?family=Alex+Brush&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Playfair Display", serif;
+  --font-cursive: "Alex Brush", cursive;
+  --font-sans: "Inter", sans-serif;
+
+  --color-cream: #FAF8F5;
+  --color-cipria: #FDF6F0;
+  --color-cipria-dark: #FCEEE9;
+  --color-rose-antico: #C58B83;
+  --color-rose-antico-dark: #BD7F77;
+  --color-gold: #C4A46A;
+  --color-gold-dark: #B5945B;
+  --color-nero: #111111;
+  --color-nero-light: #1A1A1A;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* Custom, elegant thin scrollbar matching our palette */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #FAF8F5;
+}
+::-webkit-scrollbar-thumb {
+  background: #C58B83;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #BD7F77;
+}
+
+/* Lightbox active smooth transition styles */
+.lightbox-fade-enter {
+  opacity: 0;
+}
+.lightbox-fade-enter-active {
+  opacity: 1;
+  transition: opacity 300ms ease-out;
+}
+.lightbox-fade-exit {
+  opacity: 1;
+}
+.lightbox-fade-exit-active {
+  opacity: 0;
+  transition: opacity 250ms ease-in;
+}

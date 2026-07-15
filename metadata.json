@@ -1,0 +1,6 @@
+{
+  "name": "Laura Pausini Fan Club",
+  "description": "Fan site non ufficiale dedicato a Laura Pausini con biografia, discografia, notizie, gallery, curiosità e aggiornamenti sui concerti.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
