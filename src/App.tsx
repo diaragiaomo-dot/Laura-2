@@ -27,7 +27,10 @@ import {
   User,
   Info,
   Compass,
-  HelpCircle
+  HelpCircle,
+  Download,
+  Archive,
+  FolderDown
 } from 'lucide-react';
 import {
   newsData,
@@ -47,8 +50,18 @@ function getProxiedImageUrl(url: string | undefined): string {
   const cleanUrl = url.trim();
   
   if (cleanUrl.startsWith('http')) {
-    // Route through our custom server-side image proxy to completely avoid client-side 403 Forbidden hotlink blocks
-    return `/api/proxy-image?url=${encodeURIComponent(cleanUrl)}`;
+    const hostname = window.location.hostname;
+    // Check if we are running on Altervista or another static host vs our Google Cloud Run container
+    const isAltervistaOrStatic = hostname.includes('altervista.org') || 
+                                 (!hostname.includes('europe-west2.run.app') && !hostname.includes('localhost') && hostname !== '127.0.0.1');
+    
+    if (isAltervistaOrStatic) {
+      // Route through PHP proxy when deployed to Altervista
+      return `proxy-image.php?url=${encodeURIComponent(cleanUrl)}`;
+    } else {
+      // Route through Express server-side image proxy in Node dev/prod containers
+      return `/api/proxy-image?url=${encodeURIComponent(cleanUrl)}`;
+    }
   }
   
   return cleanUrl;
@@ -117,6 +130,13 @@ export default function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [isScrolled, setIsScrolled] = useState<boolean>(false);
   const [showScrollTop, setShowScrollTop] = useState<boolean>(false);
+
+  // Export states
+  const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
+  const [exportLoadingType, setExportLoadingType] = useState<'altervista' | 'source' | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportSuccess, setExportSuccess] = useState<string | null>(null);
+  const [exportActiveTab, setExportActiveTab] = useState<'download' | 'guide'>('download');
 
   // Gallery & Lightbox states
   const [galleryFilter, setGalleryFilter] = useState<string>('Tutte');
@@ -482,6 +502,42 @@ export default function App() {
     setQuizScore(0);
   };
 
+  // Dynamic Trigger to download site bundle or source zip file
+  const triggerExport = async (type: 'altervista' | 'source') => {
+    setExportLoadingType(type);
+    setExportError(null);
+    setExportSuccess(null);
+    try {
+      const response = await fetch(`/api/export/${type}`);
+      if (!response.ok) {
+        let errMessage = "Si è verificato un errore durante la preparazione dell'esportazione.";
+        try {
+          const errData = await response.json();
+          if (errData && errData.error) {
+            errMessage = errData.error;
+          }
+        } catch (_) {}
+        throw new Error(errMessage);
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', type === 'altervista' ? 'sito-laura-pausini-altervista.zip' : 'sito-completo-sorgente.zip');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      setExportSuccess(type === 'altervista' ? 'Sito Pronto per Altervista scaricato!' : 'Codice Sorgente scaricato!');
+    } catch (err: any) {
+      console.error(err);
+      setExportError(err.message || 'Errore di connessione al server.');
+    } finally {
+      setExportLoadingType(null);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-cream selection:bg-rose-antico selection:text-white">
       {/* HEADER NAVBAR */}
@@ -535,6 +591,22 @@ export default function App() {
 
           {/* Header Action Heart & Mobile Burger */}
           <div className="flex items-center gap-4">
+            {/* Export Site Button */}
+            <button
+              id="header-export-btn"
+              onClick={() => {
+                setExportError(null);
+                setExportSuccess(null);
+                setExportActiveTab('download');
+                setIsExportModalOpen(true);
+              }}
+              className="bg-gold hover:bg-gold/90 text-white font-medium text-xs tracking-wider uppercase px-4 py-2 rounded-lg transition-all duration-300 hover:shadow-md hover:-translate-y-0.5 flex items-center gap-1.5 cursor-pointer shrink-0"
+              title="Esporta i file del sito per Altervista o il codice completo"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Esporta</span>
+            </button>
+
             {/* Heart Counter */}
             <div
               id="favorite-badge-btn"
@@ -592,6 +664,22 @@ export default function App() {
                 </button>
               )
             )}
+            
+            <button
+              id="mobile-export-btn"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                setExportError(null);
+                setExportSuccess(null);
+                setExportActiveTab('download');
+                setIsExportModalOpen(true);
+              }}
+              className="mt-2 bg-gold hover:bg-gold/90 text-white font-semibold py-3 px-4 rounded-xl text-xs tracking-wider uppercase transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+            >
+              <Download className="w-4 h-4" />
+              Esporta Sito completo
+            </button>
+
             <div className="text-center pt-2 text-xs text-gray-400 italic">
               Sito non ufficiale • Creato con amore dai Fan
             </div>
@@ -2588,6 +2676,228 @@ export default function App() {
             ))}
           </div>
 
+        </div>
+      )}
+
+      {/* MODAL 8: EXPORT SITE DIALOG */}
+      {isExportModalOpen && (
+        <div className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-3xl overflow-hidden max-w-2xl w-full shadow-2xl animate-scale-up border border-cipria flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="p-6 bg-cream border-b border-cipria flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-2.5 text-left">
+                <div className="p-2 bg-gold/15 text-gold rounded-lg shrink-0">
+                  <Download className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-serif text-lg font-bold text-nero">
+                    Esporta il Fan Site
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    Scarica i file del sito per pubblicarlo o per lo sviluppo locale
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsExportModalOpen(false)}
+                className="text-gray-400 hover:text-rose-antico transition-colors cursor-pointer p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Navigation Tabs */}
+            <div className="flex border-b border-cipria bg-cream/50 px-6 shrink-0">
+              <button
+                onClick={() => setExportActiveTab('download')}
+                className={`py-3 px-4 text-xs font-semibold uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
+                  exportActiveTab === 'download'
+                    ? 'border-gold text-gold font-bold'
+                    : 'border-transparent text-gray-500 hover:text-rose-antico'
+                }`}
+              >
+                Opzioni di Download
+              </button>
+              <button
+                onClick={() => setExportActiveTab('guide')}
+                className={`py-3 px-4 text-xs font-semibold uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
+                  exportActiveTab === 'guide'
+                    ? 'border-gold text-gold font-bold'
+                    : 'border-transparent text-gray-500 hover:text-rose-antico'
+                }`}
+              >
+                Guida Altervista
+              </button>
+            </div>
+
+            {/* Scrollable Content */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Notifications */}
+              {exportError && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 p-4 rounded-xl text-xs flex flex-col gap-2 text-left">
+                  <p className="font-semibold">{exportError}</p>
+                  <p className="text-gray-500">
+                    Se l&apos;errore dice che il sito non è compilato, attendi qualche istante o clicca sul pulsante &quot;Compila Applet&quot; nella parte superiore del pannello di controllo.
+                  </p>
+                </div>
+              )}
+              {exportSuccess && (
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 p-4 rounded-xl text-xs font-medium flex items-center gap-2 text-left">
+                  <Check className="w-4 h-4 shrink-0" />
+                  {exportSuccess}
+                </div>
+              )}
+
+              {exportActiveTab === 'download' ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-left">
+                  {/* Card 1: Altervista ready package */}
+                  <div className="bg-white rounded-2xl p-5 border border-cipria shadow-xs hover:shadow-md transition-all flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="p-1.5 bg-rose-antico/10 text-rose-antico rounded-md shrink-0">
+                          <Archive className="w-4 h-4" />
+                        </div>
+                        <h4 className="font-serif text-sm font-bold text-nero">
+                          Sito per Altervista (ZIP)
+                        </h4>
+                      </div>
+                      <p className="text-xs text-gray-500 leading-relaxed mb-4">
+                        Ottimizzato per l&apos;hosting di Altervista. Include la build compilata (HTML/JS/CSS), lo script <strong>proxy-image.php</strong> per bypassare i blocchi delle immagini di Wikipedia e le istruzioni in italiano.
+                      </p>
+                      <div className="bg-cream/75 p-3 rounded-lg border border-cipria/50 space-y-1 text-[10px] text-gray-600 mb-5">
+                        <div className="flex justify-between">
+                          <span className="font-semibold">Destinazione:</span>
+                          <span>Hosting PHP / Altervista</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="font-semibold">Nome file:</span>
+                          <span className="font-mono text-rose-antico">sito-altervista.zip</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="font-semibold">Stato:</span>
+                          <span className="text-emerald-600 font-medium flex items-center gap-0.5">Pronto</span>
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => triggerExport('altervista')}
+                      disabled={exportLoadingType !== null}
+                      className="w-full bg-rose-antico hover:bg-rose-antico-dark disabled:bg-rose-antico/50 text-white font-bold py-2.5 px-4 rounded-xl text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 shadow-sm shadow-rose-antico/15"
+                    >
+                      {exportLoadingType === 'altervista' ? (
+                        <>
+                          <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          Creazione ZIP...
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-3.5 h-3.5" />
+                          Scarica Sito Pronto
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Card 2: Source code package */}
+                  <div className="bg-white rounded-2xl p-5 border border-cipria shadow-xs hover:shadow-md transition-all flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="p-1.5 bg-gold/10 text-gold rounded-md shrink-0">
+                          <FolderDown className="w-4 h-4" />
+                        </div>
+                        <h4 className="font-serif text-sm font-bold text-nero">
+                          Sito Completo (Sorgente)
+                        </h4>
+                      </div>
+                      <p className="text-xs text-gray-500 leading-relaxed mb-4">
+                        Ottieni l&apos;intero codice sorgente di sviluppo del progetto (React, Vite, Express, Tailwind, TypeScript). Utile per fare modifiche locali con VS Code o come backup completo.
+                      </p>
+                      <div className="bg-cream/75 p-3 rounded-lg border border-cipria/50 space-y-1 text-[10px] text-gray-600 mb-5">
+                        <div className="flex justify-between">
+                          <span className="font-semibold">Destinazione:</span>
+                          <span>Localhost / Git / Dev</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="font-semibold">Nome file:</span>
+                          <span className="font-mono text-gold">sito-completo-sorgente.zip</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="font-semibold">Esclusioni:</span>
+                          <span className="font-mono">node_modules/, dist/</span>
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => triggerExport('source')}
+                      disabled={exportLoadingType !== null}
+                      className="w-full bg-gold hover:bg-gold/90 disabled:bg-gold/50 text-white font-bold py-2.5 px-4 rounded-xl text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 shadow-sm shadow-gold/15"
+                    >
+                      {exportLoadingType === 'source' ? (
+                        <>
+                          <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          Creazione ZIP...
+                        </>
+                      ) : (
+                        <>
+                          <Download className="w-3.5 h-3.5" />
+                          Scarica Codice Sorgente
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4 text-left">
+                  <div className="p-4 bg-cream/70 border border-cipria/80 rounded-2xl">
+                    <h4 className="font-serif text-sm font-bold text-nero flex items-center gap-1.5 mb-3">
+                      <CheckCircle className="w-4.5 h-4.5 text-rose-antico shrink-0" />
+                      Come pubblicare su Altervista
+                    </h4>
+                    <ol className="space-y-3.5 text-xs text-gray-600 list-decimal pl-4 leading-relaxed">
+                      <li>
+                        <strong>Scarica il file ZIP</strong> compilato tramite il pulsante <strong>&quot;Scarica Sito Pronto&quot;</strong> nella scheda precedente.
+                      </li>
+                      <li>
+                        <strong>Estrarre i file</strong> sul proprio computer. Dovresti vedere un file <code className="font-mono bg-white px-1 border border-cipria/65 rounded text-rose-antico">index.html</code>, un file <code className="font-mono bg-white px-1 border border-cipria/65 rounded text-rose-antico">proxy-image.php</code>, una cartella <code className="font-mono bg-white px-1 border border-cipria/65 rounded text-rose-antico">assets/</code> e questo file di istruzioni.
+                      </li>
+                      <li>
+                        <strong>Accedi ad Altervista</strong> (<a href="https://www.altervista.org" target="_blank" rel="noopener noreferrer" className="text-rose-antico underline inline-flex items-center gap-0.5">altervista.org<ExternalLink className="w-3 h-3" /></a>) e fai login con il tuo account.
+                      </li>
+                      <li>
+                        Vai nel <strong>Pannello di Controllo</strong> ed entra nella sezione <strong>Gestione File</strong> (o File Manager).
+                      </li>
+                      <li>
+                        Carica tutti i file estratti (specialmente l&apos;intero contenuto della cartella <code className="font-mono bg-white px-1 border border-cipria/65 rounded text-rose-antico">assets/</code>, il file <code className="font-mono bg-white px-1 border border-cipria/65 rounded text-rose-antico">index.html</code> e lo script <code className="font-mono bg-white px-1 border border-cipria/65 rounded text-rose-antico">proxy-image.php</code>) direttamente nella cartella principale del server.
+                      </li>
+                      <li>
+                        Visita l&apos;indirizzo del tuo sito (ad esempio: <code className="font-mono bg-white px-1 border border-cipria/65 rounded text-gray-700">http://tuonome.altervista.org</code>) per vederlo online!
+                      </li>
+                    </ol>
+                  </div>
+
+                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex gap-3">
+                    <Info className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="space-y-1 text-xs text-amber-800 leading-relaxed">
+                      <h5 className="font-bold">Nota sulle Immagini di Wikipedia</h5>
+                      <p>
+                        Wikipedia blocca i caricamenti esterni diretti delle immagini (errore 403) e applica rigidi limiti di frequenza (errore 429). Lo script <code className="font-mono bg-white/70 px-1 border border-amber-300 rounded text-amber-900 font-semibold">proxy-image.php</code> incluso nell&apos;esportazione funge da ponte sicuro utilizzando una CDN ad alte prestazioni. Assicurati di non cancellarlo!
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-cream border-t border-cipria flex justify-end shrink-0 gap-3">
+              <button
+                onClick={() => setIsExportModalOpen(false)}
+                className="bg-rose-antico hover:bg-rose-antico-dark text-white font-bold py-2 px-6 rounded-xl text-xs uppercase tracking-wider transition-all cursor-pointer"
+              >
+                Chiudi Esportatore
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
